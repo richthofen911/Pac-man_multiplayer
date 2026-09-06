@@ -30,9 +30,16 @@ const PULSE_THRESHOLD = 25;      // dots remaining to enter endgame
 const PULSE_PERIOD = 15;         // seconds between pulses
 const PULSE_DURATION = 4;        // fright seconds per pulse
 const PULSE_FIRST_DELAY = 5;     // first pulse after crossing threshold
+const PULSE_APPROACH_WINDOW = 3; // bot pacman closes on a ghost this long before pulse
 
 // ghost bodies: blocked this long -> phase through to break deadlocks
 const GHOST_BLOCKED_PHASE = 1.0; // seconds
+
+// bot pacman pellet seeking: chase a pellet when its BFS distance <= nearest dot * PELLET_RATIO
+const PELLET_RATIO = 4;
+
+// bot pacman threat projection: also evaluate where each threat ghost will be this many seconds ahead
+const DANGER_LOOKAHEAD = 0.4;
 
 const GHOST_NAMES = ['Blinky', 'Pinky', 'Inky', 'Clyde'];
 const GHOST_COLORS = ['#ff0000', '#ffb8ff', '#00ffff', '#ffb852'];
@@ -325,12 +332,10 @@ class Game {
 
     if (e.bot) {
       if (ghost && (this.isFright() || e.exposed)) return this.randomDir(e);
+      if (!ghost) return this.pacmanBotDir(e);
       const target = this.botTarget(e);
       if (target) {
         const d = this.bfsFirstStep(e.r, e.c, target, ghost);
-        // pacman bot: don't beeline into interceptors — dodge when the
-        // BFS step would land within danger range of a live ghost
-        if (!ghost && d) return this.pacmanSafeDir(e, target, d);
         if (d) return d;
       }
       // fall through to straight / none below
@@ -341,16 +346,91 @@ class Game {
     return 'none';
   }
 
-  nearestGhostDist(r, c) {
+  // distance to the nearest live threat — edible ghosts (frightened / exposed) are excluded.
+  // optional `lookahead` projects each threat along its current heading by `speed * t` tiles.
+  nearestGhostDist(r, c, lookahead = 0) {
     let best = Infinity;
     for (const g of this.ghosts) {
       if (g.eaten || this.gameTime < g.releaseAt) continue;
-      best = Math.min(best, Math.hypot(g.px - c, g.py - r));
+      if (this.isGhostEdible(g)) continue;
+      let gx = g.px, gy = g.py;
+      if (lookahead > 0) {
+        const spd = g.speed * lookahead;
+        gx += (DX[g.dir] || 0) * spd;
+        gy += (DY[g.dir] || 0) * spd;
+      }
+      best = Math.min(best, Math.hypot(gx - c, gy - r));
     }
     return best;
   }
 
-  // pick a safe step toward the dot target; fall back to the safest open dir
+  isGhostEdible(g) {
+    return !g.eaten && this.gameTime >= g.releaseAt && (this.isFright() || g.exposed);
+  }
+
+  // nearest edible ghost tile, or null if none are edible
+  nearestEdibleGhost(e) {
+    let best = null, bestDist = Infinity;
+    for (const g of this.ghosts) {
+      if (!this.isGhostEdible(g)) continue;
+      const d = Math.hypot(g.px - e.px, g.py - e.py);
+      if (d < bestDist) { bestDist = d; best = g; }
+    }
+    return best ? { r: best.r, c: best.c } : null;
+  }
+
+  // nearest live ghost tile (released + not eaten) — used for pulse pre-positioning
+  nearestLiveGhost(e) {
+    let best = null, bestDist = Infinity;
+    for (const g of this.ghosts) {
+      if (g.eaten || this.gameTime < g.releaseAt) continue;
+      const d = Math.hypot(g.px - e.px, g.py - e.py);
+      if (d < bestDist) { bestDist = d; best = g; }
+    }
+    return best ? { r: best.r, c: best.c } : null;
+  }
+
+  nearestPellet(e) {
+    return this.bfsGoalDist(e.r, e.c, false, (r, c) => this.maze[r][c] === TILE.PELLET);
+  }
+
+  // full pacman-bot decision: chase edible ghosts > seek pellets > collect dots
+  pacmanBotDir(e) {
+    // 1. aggressively chase the nearest edible ghost — no dodge, reward is worth it
+    const edible = this.nearestEdibleGhost(e);
+    if (edible) {
+      const d = this.bfsFirstStep(e.r, e.c, edible, false);
+      if (d) return d;
+    }
+    // 2. endgame pulse incoming — close on a ghost so we can eat it the moment fright fires
+    if (this.endgame && !this.isFright() && this.nextPulseAt !== null &&
+        (this.nextPulseAt - this.gameTime) <= PULSE_APPROACH_WINDOW) {
+      const approach = this.nearestLiveGhost(e);
+      if (approach) {
+        const d = this.bfsFirstStep(e.r, e.c, approach, false);
+        if (d) return this.pacmanSafeDir(e, approach, d);
+      }
+    }
+    // 3. prefer power pellets when no fright active, but skip them if a dot is much closer
+    let target = null;
+    if (!this.isFright()) {
+      const pellet = this.nearestPellet(e);
+      if (pellet) {
+        const nearestDotOnly = this.bfsGoalDist(e.r, e.c, false, (r, c) => this.maze[r][c] === TILE.DOT);
+        if (!nearestDotOnly || pellet.dist <= nearestDotOnly.dist * PELLET_RATIO) target = pellet;
+      }
+    }
+    // 4. fall back to nearest dot / pellet
+    if (!target) target = this.nearestDot(e);
+    if (target) {
+      const d = this.bfsFirstStep(e.r, e.c, target, false);
+      if (d) return this.pacmanSafeDir(e, target, d);
+    }
+    if (e.dir && e.dir !== 'none' && canMove(this.maze, e.r, e.c, e.dir, false)) return e.dir;
+    return 'none';
+  }
+
+  // pick a safe step toward the target; fall back to the safest open dir
   pacmanSafeDir(e, target, bfsDir) {
     const SAFE = 2.5;
     const tryOrder = [bfsDir];
@@ -363,7 +443,10 @@ class Game {
     for (const d of tryOrder) {
       if (!canMove(this.maze, e.r, e.c, d, false)) continue;
       const nb = neighbor(this.maze, e.r, e.c, d, false);
-      const dist = this.nearestGhostDist(nb.r, nb.c);
+      // worst case between "now" and "lookahead seconds from now" along each ghost's heading
+      const now = this.nearestGhostDist(nb.r, nb.c);
+      const projected = this.nearestGhostDist(nb.r, nb.c, DANGER_LOOKAHEAD);
+      const dist = Math.min(now, projected);
       if (dist >= SAFE) return d;             // safe and closest to preference order
       if (dist > bestDist) { bestDist = dist; bestDir = d; }
     }
@@ -371,7 +454,6 @@ class Game {
   }
 
   botTarget(e) {
-    if (!e.friendly) return this.nearestDot(e); // pacman bot
     const p = this.pacman;
     const per = e.personality;
     if (per === 'Blinky') return { r: p.r, c: p.c };
@@ -426,6 +508,26 @@ class Game {
         if (seen.has(k)) continue;
         if (!canEnter(this.maze, nr, nc, ghost)) continue;
         seen.add(k); q.push([nr, nc]);
+      }
+    }
+    return null;
+  }
+
+  // same as bfsGoal but also returns BFS depth (graph distance from start)
+  bfsGoalDist(r, c, ghost, isGoal) {
+    const seen = new Set([r + ',' + c]);
+    const q = [[r, c, 0]];
+    while (q.length) {
+      const [cr, cc, depth] = q.shift();
+      if ((cr !== r || cc !== c) && isGoal(cr, cc)) return { r: cr, c: cc, dist: depth };
+      for (const d of ['up', 'left', 'down', 'right']) {
+        let nr = cr + DY[d], nc = cc + DX[d];
+        if (nc < 0) nc = COLS - 1; if (nc >= COLS) nc = 0;
+        if (nr < 0 || nr >= ROWS) continue;
+        const k = nr + ',' + nc;
+        if (seen.has(k)) continue;
+        if (!canEnter(this.maze, nr, nc, ghost)) continue;
+        seen.add(k); q.push([nr, nc, depth + 1]);
       }
     }
     return null;
