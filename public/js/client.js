@@ -246,6 +246,8 @@
   function sendDir(dir) { socket.emit('input', { dir }); }
 
   window.addEventListener('keydown', (e) => {
+    const t = e.target;
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
     const dir = KEYMAP[e.code];
     if (dir) {
       e.preventDefault();
