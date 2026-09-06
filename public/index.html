@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Pacman: 5-Player</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="app">
+    <div id="screen-lobby" class="screen active">
+      <h1 class="logo">PACMAN <span class="sub">multiplayer</span></h1>
+      <p class="tagline">1 Pacman vs 4 Ghosts &middot; up to 5 players</p>
+
+      <div class="card">
+        <label for="name">Choose your name</label>
+        <div class="row">
+          <input id="name" type="text" maxlength="12" placeholder="Player" autocomplete="off" />
+          <button id="joinBtn" class="btn primary">Join</button>
+        </div>
+
+        <div id="lobbyInfo" class="lobby-info">
+          <div id="slotPreview" class="slots"></div>
+          <p id="status" class="status"></p>
+        </div>
+
+        <button id="startBtn" class="btn primary" hidden>Start Game</button>
+      </div>
+
+      <p class="hint">Controls: <b>WASD</b> / <b>Arrow keys</b>, or on touch screens use the <b>joystick</b> below the board or <b>swipe</b> on it. Roles are assigned at random.<br />
+      Ghosts: cluster together or <b>stand still too long</b> and you become <b>edible</b> (white ring) &mdash; keep hunting!</p>
+    </div>
+
+    <div id="screen-game" class="screen">
+      <div class="hud">
+        <div class="hud-left">
+          <div class="score">Score <b id="score">0</b></div>
+          <div class="lives" id="lives"></div>
+        </div>
+        <div class="hud-right">
+          <div id="roleBadge"></div>
+          <button id="leaveBtn" class="btn ghost">Leave</button>
+        </div>
+      </div>
+      <div id="surge" class="surge" hidden></div>
+      <div class="canvas-wrap">
+        <canvas id="game"></canvas>
+        <div id="overlay" class="overlay" hidden>
+          <div class="overlay-box">
+            <h2 id="overlayTitle">Game Over</h2>
+            <p id="overlayText"></p>
+            <div id="leaderboard" class="leaderboard"></div>
+            <button id="restartBtn" class="btn primary" hidden>Play Again</button>
+            <button id="overlayLeaveBtn" class="btn ghost">Leave Game</button>
+            <p id="restartWait" class="status" hidden>Waiting for host to restart&hellip;</p>
+          </div>
+        </div>
+      </div>
+      <div id="joy" class="joystick" aria-label="on-screen controls">
+        <div id="joyKnob" class="knob"></div>
+      </div>
+      <div id="roster" class="roster"></div>
+    </div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="js/render.js"></script>
+  <script src="js/client.js"></script>
+</body>
+</html>

@@ -1,0 +1,13 @@
+{
+  "name": "pacman-multiplayer",
+  "version": "1.0.0",
+  "description": "LAN multiplayer classic Pacman - 1 Pacman vs 4 Ghosts",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "socket.io": "^4.7.5"
+  }
+}
