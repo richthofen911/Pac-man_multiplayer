@@ -149,6 +149,15 @@ function removePlayer(id) {
   players.delete(id);
   if (id === hostId) hostId = [...players.keys()][0] || null;
 
+  // bots alone must not keep the lobby shut: an unfinished round is dropped, not scored
+  if (players.size === 0) {
+    if (game) {
+      game.abandon();
+      game = null;
+    }
+    return;
+  }
+
   // convert to bot mid-game
   if (game) {
     const slot = game.slotOfHuman.get(id);

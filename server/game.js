@@ -45,7 +45,7 @@ const DANGER_LOOKAHEAD = 0.4;
 // --- 3v3 mode constants ---
 const GAME_DURATION = 180;        // 3-minute countdown
 const ROLE_TRANSITION = 0.5;      // seconds to morph between ghost <-> pacman
-const RESPAWN_INVINCIBLE = 5;     // tangibility grace after leaving ghost house
+const RESPAWN_INVINCIBLE = 3;     // tangibility grace after leaving ghost house
 const EAT_SCORE_3V3 = 200;        // pacman eats enemy ghost -> team score
 const KILL_SCORE_3V3 = 200;       // ghost kills enemy pacman -> team score
 const ASSIST_SCORE_3V3 = 75;      // nearby same-team ghosts on a kill
@@ -115,6 +115,14 @@ class GameBase {
     this.over = false;
     this.broadcastStarted();
     this.loop = setInterval(() => this.tick(DT), DT * 1000);
+  }
+
+  // Stops a game nobody is playing any more. No winner is declared and no results go out, so an
+  // abandoned round cannot land on the leaderboard the way end() would.
+  abandon() {
+    this.over = true;
+    clearInterval(this.loop);
+    this.loop = null;
   }
 
   clampCell(r, c) {
@@ -1131,8 +1139,8 @@ class Game3v3 extends GameBase {
 
   // ---------- movement (3v3 body collision) ----------
   // Bodies are solid everywhere except in the shared house — a 1-tile-wide staging
-  // area where two parked players would entomb the round — and during the 5s
-  // post-respawn grace.
+  // area where two parked players would entomb the round — and during the
+  // post-respawn grace (`RESPAWN_INVINCIBLE`).
   isSolid3v3(e) {
     if (e.eaten || e.transitioning) return false;
     if (this.gameTime < e.releaseAt) return false;
