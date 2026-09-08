@@ -2,13 +2,18 @@
   'use strict';
 
   const TILE = 20;
+  const CENTER_COL = 14; // 3v3 border between c=13 (left/red) and c=14 (right/blue)
   const WALL_COLOR = '#2323c8';
   const WALL_EDGE = '#4a4ae0';
   const DOOR_COLOR = '#ffb8de';
   const DOT_COLOR = '#ffb897';
+  const DOT_DIM = '#4a3820';
   const PELLET_COLOR = '#ffd9a8';
+  const PELLET_DIM = '#5a4a30';
   const FRIGHT_COLOR = '#2121de';
   const FRIGHT_FLASH = '#f2f2ff';
+  const RED_COLOR = '#ff4444';
+  const BLUE_COLOR = '#4488ff';
 
   let R = null;
 
@@ -35,7 +40,7 @@
   }
 
   window.PR = {
-    init(map, cols, rows, roles, mySocketId) {
+    init(map, cols, rows, roles, mySocketId, mode) {
       const canvas = document.getElementById('game');
       canvas.width = cols * TILE;
       canvas.height = rows * TILE;
@@ -45,6 +50,8 @@
         canvas,
         ctx: canvas.getContext('2d'),
         cols, rows, roles, myRole,
+        mode: mode || 'classic',
+        myTeam: myRole ? myRole.team : null,
         walls: parsed.wallCells,
         doors: parsed.doorCells,
         dots: parsed.dots,
@@ -56,7 +63,11 @@
 
     onState(st) {
       if (!R) return;
-      if (!st.pacman || !Array.isArray(st.ghosts)) return;
+      if (st.mode === '3v3' || Array.isArray(st.entities)) {
+        if (!Array.isArray(st.entities)) return;
+      } else {
+        if (!st.pacman || !Array.isArray(st.ghosts)) return;
+      }
       R.prev = R.last;
       R.prevAt = R.lastAt;
       R.last = st;
@@ -78,6 +89,16 @@
     const st = R.last;
     if (!R.prev) return st;
     const f = clamp((performance.now() - R.prevAt) / ((R.lastAt - R.prevAt) || 1), 0, 1);
+    if (Array.isArray(st.entities)) {
+      const prevBySlot = new Map();
+      if (R.prev.entities) for (const pe of R.prev.entities) prevBySlot.set(pe.slot, pe);
+      const out = { ...st, entities: st.entities.map(e => {
+        const pe = prevBySlot.get(e.slot);
+        if (!pe) return { ...e };
+        return { ...e, x: lerp(pe.x, e.x, f), y: lerp(pe.y, e.y, f) };
+      })};
+      return out;
+    }
     const out = { ...st, pacman: { ...st.pacman }, ghosts: st.ghosts.map(g => ({ ...g })) };
     out.pacman.x = lerp(R.prev.pacman.x, st.pacman.x, f);
     out.pacman.y = lerp(R.prev.pacman.y, st.pacman.y, f);
@@ -115,9 +136,9 @@
     }
 
     // dots
-    ctx.fillStyle = DOT_COLOR;
     for (const k of R.dots) {
       const [r, c] = k.split(',').map(Number);
+      ctx.fillStyle = dotColorFor(c);
       ctx.beginPath();
       ctx.arc(c * TILE + TILE / 2, r * TILE + TILE / 2, 2.6, 0, Math.PI * 2);
       ctx.fill();
@@ -125,25 +146,120 @@
 
     // power pellets (blink)
     const blink = Math.floor(performance.now() / 220) % 2 === 0;
-    ctx.fillStyle = blink ? PELLET_COLOR : DOOR_COLOR;
     for (const k of R.pellets) {
       const [r, c] = k.split(',').map(Number);
+      ctx.fillStyle = pelletColorFor(c, blink);
       ctx.beginPath();
       ctx.arc(c * TILE + TILE / 2, r * TILE + TILE / 2, 5.5, 0, Math.PI * 2);
       ctx.fill();
     }
+
+    // 3v3 border line: subtle vertical gradient at CENTER_COL
+    if (R.mode === '3v3') {
+      const x = CENTER_COL * TILE;
+      const grad = ctx.createLinearGradient(0, 0, 0, R.canvas.height);
+      grad.addColorStop(0, 'rgba(255,68,68,0.18)');
+      grad.addColorStop(0.5, 'rgba(255,255,255,0.10)');
+      grad.addColorStop(1, 'rgba(68,136,255,0.18)');
+      ctx.strokeStyle = grad;
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([6, 6]);
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, R.canvas.height);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+  }
+
+  function isHomeSide(c) {
+    if (R.mode !== '3v3' || !R.myTeam) return false;
+    const side = c < CENTER_COL ? 'left' : 'right';
+    return side === (R.myTeam === 'red' ? 'left' : 'right');
+  }
+
+  function dotColorFor(c) {
+    return isHomeSide(c) ? DOT_DIM : DOT_COLOR;
+  }
+  function pelletColorFor(c, blink) {
+    if (isHomeSide(c)) return PELLET_DIM;
+    return blink ? PELLET_COLOR : DOOR_COLOR;
   }
 
   function drawEntities(st) {
     const ctx = R.ctx;
-    // ghosts first (so pacman is drawn on top)
+    if (Array.isArray(st.entities)) {
+      const ghosts = st.entities.filter(e => !e.eaten && e.currentRole === 'ghost');
+      const pacmen = st.entities.filter(e => !e.eaten && e.currentRole === 'pacman');
+      for (const g of ghosts) {
+        if (g.invincible) ctx.globalAlpha = 0.45;
+        drawGhost(g.x, g.y, g.color, g.fright, st.teamFright ? st.teamFright[g.team] > 1.5 : g.fright, false);
+        if (g.invincible) ctx.globalAlpha = 1;
+        if (g.fright) drawTeamRing(g);
+        if (g.transitioning) drawTransitionFlash(g);
+        drawNameTag(g.name, g.x, g.y, g.color);
+      }
+      for (const p of pacmen) {
+        drawPacman(p.x, p.y, p.dir, p.invincible, p.color);
+        if (p.transitioning) drawTransitionFlash(p);
+        drawNameTag(p.name, p.x, p.y, p.color);
+      }
+      return;
+    }
     for (const g of st.ghosts) {
       if (g.eaten) continue;
       if (g.phasing) ctx.globalAlpha = 0.45;
       drawGhost(g.x, g.y, R.roles[gGhostRole(g, st)].color, g.fright, st.fright > 1.5 ? false : st.fright > 0, g.exposed);
       if (g.phasing) ctx.globalAlpha = 1;
+      drawNameTag(R.roles[gGhostRole(g, st)].name, g.x, g.y, R.roles[gGhostRole(g, st)].color);
     }
     drawPacman(st.pacman.x, st.pacman.y, st.pacman.dir, st.invincible);
+    drawNameTag(R.roles[0].name, st.pacman.x, st.pacman.y, '#ffd400');
+  }
+
+  function drawNameTag(name, x, y, color) {
+    const ctx = R.ctx;
+    const cx = x * TILE + TILE / 2;
+    const cy = y * TILE - 2;
+    const label = name.length > 8 ? name.slice(0, 7) + '…' : name;
+    ctx.save();
+    ctx.font = 'bold 9px Verdana, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    const tw = ctx.measureText(label).width;
+    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    ctx.fillRect(cx - tw / 2 - 3, cy - 12, tw + 6, 13);
+    ctx.fillStyle = color || '#fff';
+    ctx.fillText(label, cx, cy);
+    ctx.restore();
+  }
+
+  function drawTeamRing(e) {
+    const ctx = R.ctx;
+    const cx = e.x * TILE + TILE / 2;
+    const cy = e.y * TILE + TILE / 2;
+    ctx.save();
+    ctx.strokeStyle = e.color;
+    ctx.globalAlpha = 0.85;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(cx, cy, TILE * 0.62, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawTransitionFlash(e) {
+    const ctx = R.ctx;
+    const cx = e.x * TILE + TILE / 2;
+    const cy = e.y * TILE + TILE / 2;
+    const on = Math.floor(performance.now() / 80) % 2 === 0;
+    ctx.save();
+    ctx.globalAlpha = on ? 0.5 : 0.15;
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.arc(cx, cy, TILE * 0.55, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
   }
 
   // match ghost index in array (0..3) to roles[1..4]
@@ -152,7 +268,7 @@
     return idx + 1;
   }
 
-  function drawPacman(x, y, dir, invincible) {
+  function drawPacman(x, y, dir, invincible, color) {
     const ctx = R.ctx;
     const cx = x * TILE + TILE / 2, cy = y * TILE + TILE / 2, r = TILE * 0.46;
     const a = dirAngle(dir);
@@ -160,7 +276,7 @@
     if (invincible && Math.floor(performance.now() / 120) % 2 === 0) {
       ctx.globalAlpha = 0.35;
     }
-    ctx.fillStyle = '#ffd400';
+    ctx.fillStyle = color || '#ffd400';
     ctx.beginPath();
     ctx.moveTo(cx, cy);
     ctx.arc(cx, cy, r, a + mouth, a + Math.PI * 2 - mouth);

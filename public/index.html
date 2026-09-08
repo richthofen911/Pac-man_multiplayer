@@ -19,6 +19,14 @@
           <button id="joinBtn" class="btn primary">Join</button>
         </div>
 
+        <div id="modeRow" class="row mode-row" hidden>
+          <label for="modeSelect" class="mode-label">Game mode</label>
+          <select id="modeSelect" class="mode-select">
+            <option value="classic">Classic (1 Pacman vs 4 Ghosts)</option>
+            <option value="3v3">3 vs 3 Team Battle</option>
+          </select>
+        </div>
+
         <div id="lobbyInfo" class="lobby-info">
           <div id="slotPreview" class="slots"></div>
           <p id="status" class="status"></p>
@@ -27,15 +35,22 @@
         <button id="startBtn" class="btn primary" hidden>Start Game</button>
       </div>
 
-      <p class="hint">Controls: <b>WASD</b> / <b>Arrow keys</b>, or on touch screens use the <b>joystick</b> below the board or <b>swipe</b> on it. Roles are assigned at random.<br />
-      Ghosts: cluster together or <b>stand still too long</b> and you become <b>edible</b> (white ring) &mdash; keep hunting!</p>
+      <p class="hint">Controls: <b>WASD</b> / <b>Arrow keys</b>, or on touch screens use the <b>joystick</b> below the board or <b>swipe</b> on it. Roles are assigned at random.<span id="blobHint"><br />
+      Ghosts: cluster together or <b>stand still too long</b> and you become <b>edible</b> (white ring) &mdash; keep hunting!</span></p>
     </div>
 
     <div id="screen-game" class="screen">
       <div class="hud">
         <div class="hud-left">
-          <div class="score">Score <b id="score">0</b></div>
+          <div class="score" id="classicScoreRow">Score <b id="score">0</b></div>
           <div class="lives" id="lives"></div>
+          <div class="team-scores" id="teamScores" hidden>
+            <span class="ts red">Red <b id="redScore">0</b></span>
+            <span class="ts blue">Blue <b id="blueScore">0</b></span>
+          </div>
+        </div>
+        <div class="hud-mid">
+          <div class="timer" id="timer" hidden>--:--</div>
         </div>
         <div class="hud-right">
           <div id="roleBadge"></div>

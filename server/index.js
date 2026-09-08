@@ -4,10 +4,9 @@ const express = require('express');
 const http = require('http');
 const path = require('path');
 const { Server } = require('socket.io');
-const { Game } = require('./game');
+const { Game, Game3v3 } = require('./game');
 
 const PORT = process.env.PORT || 3000;
-const MAX_PLAYERS = 5;
 
 const app = express();
 app.use(express.static(path.join(__dirname, '..', 'public')));
@@ -18,17 +17,25 @@ const io = new Server(server);
 const players = new Map(); // socketId -> {id,name,socket}
 let game = null;
 let hostId = null;
+let gameMode = 'classic';
 const totals = new Map();  // name -> cumulative score across games
 
+function maxPlayers() { return gameMode === '3v3' ? 6 : 5; }
+
 function slotName(s) {
+  if (gameMode === '3v3') {
+    const team = s < 3 ? 'Red' : 'Blue';
+    return `${team} ${s % 3 + 1}`;
+  }
   return s === 0 ? 'Pacman' : ['Blinky', 'Pinky', 'Inky', 'Clyde'][s - 1];
 }
 
 function lobbyPayload() {
   return {
     type: 'lobby',
+    mode: gameMode,
     count: players.size,
-    max: MAX_PLAYERS,
+    max: maxPlayers(),
     isHost: null, // set per-socket on emit
     names: [...players.values()].map(p => p.name),
     starting: !!game,
@@ -36,6 +43,7 @@ function lobbyPayload() {
       role: r.role,
       name: r.name,
       color: r.color,
+      team: r.team,
       bot: r.bot
     })) : null
   };
@@ -52,8 +60,9 @@ function broadcastLobby() {
 
 function startGame() {
   if (game) return;
-  const list = [...players.values()].slice(0, MAX_PLAYERS);
-  const finished = new Game(list,
+  const list = [...players.values()].slice(0, maxPlayers());
+  const Ctor = gameMode === '3v3' ? Game3v3 : Game;
+  const finished = new Ctor(list,
     (payload) => io.emit(payload.type, payload),
     {
       onEnd: (winner) => {
@@ -63,6 +72,7 @@ function startGame() {
         }
         io.emit('results', {
           winner,
+          mode: gameMode,
           standings: standings.map(row => ({ ...row, total: totals.get(row.name) || 0 }))
         });
         game = null;
@@ -79,8 +89,8 @@ io.on('connection', (socket) => {
   socket.emit('hello', { id: socket.id });
 
   socket.on('join', ({ name }) => {
-    if (players.size >= MAX_PLAYERS) {
-      socket.emit('error', { msg: 'Lobby is full (5 players max).' });
+    if (players.size >= maxPlayers()) {
+      socket.emit('error', { msg: `Lobby is full (${maxPlayers()} players max).` });
       return;
     }
     if (game) {
@@ -93,11 +103,20 @@ io.on('connection', (socket) => {
     broadcastLobby();
 
     // auto-start when full
-    if (players.size === MAX_PLAYERS) startGame();
+    if (players.size === maxPlayers()) startGame();
   });
 
   socket.on('input', ({ dir }) => {
     if (game) game.setWish(socket.id, dir);
+  });
+
+  socket.on('setMode', ({ mode }) => {
+    if (socket.id !== hostId) return;
+    if (game) return;
+    if (mode !== 'classic' && mode !== '3v3') return;
+    if (mode === gameMode) return;
+    gameMode = mode;
+    broadcastLobby();
   });
 
   socket.on('start', () => {
@@ -134,13 +153,16 @@ function removePlayer(id) {
   if (game) {
     const slot = game.slotOfHuman.get(id);
     game.slotOfHuman.delete(id);
-    if (slot === 0) {
+    if (slot === undefined) return;
+    if (gameMode === '3v3') {
+      const e = game.entities[slot];
+      if (e) { e.bot = true; e.wish = 'none'; }
+    } else if (slot === 0) {
       game.pacman.bot = true;
       game.pacman.wish = 'none';
-    } else if (slot && slot >= 1 && slot <= 4) {
+    } else if (slot >= 1 && slot <= 4) {
       const g = game.ghosts[slot - 1];
-      g.bot = true;
-      g.wish = 'none';
+      if (g) { g.bot = true; g.wish = 'none'; }
     }
   }
 }

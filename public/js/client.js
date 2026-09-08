@@ -10,6 +10,9 @@
   let joined = false;
   let isHost = false;
   let inGame = false;
+  let gameMode = 'classic';
+  let gameStage = null;       // last 3v3 stage seen ('skirmish' | 'hunt')
+  let bannerTimer = null;     // hides the one-shot stage banner
 
   const el = {
     screenLobby: document.getElementById('screen-lobby'),
@@ -17,10 +20,18 @@
     name: document.getElementById('name'),
     joinBtn: document.getElementById('joinBtn'),
     startBtn: document.getElementById('startBtn'),
+    modeRow: document.getElementById('modeRow'),
+    modeSelect: document.getElementById('modeSelect'),
+    blobHint: document.getElementById('blobHint'),
     slotPreview: document.getElementById('slotPreview'),
     status: document.getElementById('status'),
     score: document.getElementById('score'),
+    classicScoreRow: document.getElementById('classicScoreRow'),
     lives: document.getElementById('lives'),
+    teamScores: document.getElementById('teamScores'),
+    redScore: document.getElementById('redScore'),
+    blueScore: document.getElementById('blueScore'),
+    timer: document.getElementById('timer'),
     roleBadge: document.getElementById('roleBadge'),
     overlay: document.getElementById('overlay'),
     overlayTitle: document.getElementById('overlayTitle'),
@@ -36,7 +47,7 @@
 
   socket.on('connect', () => {
     myId = socket.id;
-    renderLobby({ count: 0, max: 5, isHost: false, names: [], starting: false });
+    renderLobby({ count: 0, max: 5, isHost: false, names: [], starting: false, mode: 'classic' });
   });
 
   socket.on('hello', ({ id }) => { myId = id; });
@@ -47,11 +58,15 @@
 
   socket.on('started', (data) => {
     inGame = true;
-    game = window.PR.init(data.maze, data.cols, data.rows, data.roles, myId);
+    gameMode = data.mode || 'classic';
+    game = window.PR.init(data.maze, data.cols, data.rows, data.roles, myId, gameMode);
     myRole = data.roles.find(r => r.socketId === myId) || null;
     el.leaderboard.innerHTML = '';
     el.surge.hidden = true;
+    if (bannerTimer) { clearTimeout(bannerTimer); bannerTimer = null; }
+    gameStage = null;
     showGame();
+    applyHudMode();
     buildRoleBadge(data.roles);
     buildRoster(data.roles);
   });
@@ -59,15 +74,35 @@
   socket.on('state', (st) => {
     if (!game) return;
     window.PR.onState(st);
-    el.score.textContent = st.score;
-    renderLives(st.lives);
-    updateRosterScores(st.players);
-    updateSurge(st.pulseIn);
-    if (st.over) showOverlay(st.winner);
+    if (st.mode === '3v3') {
+      el.redScore.textContent = st.teamScores.red;
+      el.blueScore.textContent = st.teamScores.blue;
+      renderTimer(st.timeRemaining);
+      updateRosterScoresFromEntities(st.entities);
+      updateRoleBadgeFor3v3(st.entities);
+      if (st.stage !== gameStage) {
+        gameStage = st.stage;
+        if (st.stage === 'hunt' && !st.over) showBanner(huntBannerText(st.entities), 7000);
+      }
+    } else {
+      el.score.textContent = st.score;
+      renderLives(st.lives);
+      updateRosterScores(st.players);
+      updateSurge(st.pulseIn);
+    }
+    if (st.over) showOverlay(st.winner, st.mode);
     else hideOverlay();
   });
 
-  socket.on('results', ({ standings }) => renderLeaderboard(standings));
+  socket.on('results', ({ standings, mode }) => renderLeaderboard(standings, mode));
+
+  // one-shot toast; #surge is the existing in-game broadcast channel
+  function showBanner(text, ms) {
+    el.surge.textContent = text;
+    el.surge.hidden = false;
+    if (bannerTimer) clearTimeout(bannerTimer);
+    bannerTimer = setTimeout(() => { el.surge.hidden = true; bannerTimer = null; }, ms || 6000);
+  }
 
   function updateSurge(pulseIn) {
     if (pulseIn !== null && pulseIn <= 5) {
@@ -92,6 +127,9 @@
   el.restartBtn.addEventListener('click', () => socket.emit('restart'));
   el.leaveBtn.addEventListener('click', leave);
   el.overlayLeaveBtn.addEventListener('click', leave);
+  el.modeSelect.addEventListener('change', () => {
+    socket.emit('setMode', { mode: el.modeSelect.value });
+  });
 
   function leave() {
     socket.emit('leave');
@@ -102,22 +140,46 @@
     el.joinBtn.disabled = false;
     el.name.disabled = false;
     el.surge.hidden = true;
+    el.timer.hidden = true;
+    el.teamScores.hidden = true;
+    el.classicScoreRow.hidden = false;
+    el.lives.hidden = false;
     hideOverlay();
     showLobby();
   }
 
   function renderLobby(data) {
     isHost = data.isHost;
+    gameMode = data.mode || 'classic';
     localStorage.setItem('pacman_host', isHost ? '1' : '0');
     if (!inGame) showLobby();
-    el.slotPreview.innerHTML = '';
 
-    const slotTexts = ['Pacman', 'Blinky', 'Pinky', 'Inky', 'Clyde'];
-    for (let i = 0; i < slotTexts.length; i++) {
-      const role = slotTexts[i];
+    // host-only mode picker; disabled once the game has started
+    el.modeSelect.value = gameMode;
+    el.modeRow.hidden = !isHost || !!data.starting;
+    el.modeSelect.disabled = !!data.starting;
+    el.blobHint.hidden = gameMode === '3v3';
+
+    el.slotPreview.innerHTML = '';
+    const n = data.max || 5;
+    el.slotPreview.style.setProperty('--slot-count', n);
+
+    const slots = [];
+    for (let i = 0; i < n; i++) {
+      if (gameMode === '3v3') {
+        const team = i < 3 ? 'Red' : 'Blue';
+        slots.push({ label: `${team} ${i % 3 + 1}`, color: team === 'Red' ? '#ff4444' : '#4488ff', team: team.toLowerCase() });
+      } else {
+        const role = ['Pacman', 'Blinky', 'Pinky', 'Inky', 'Clyde'][i];
+        slots.push({ label: role, color: roleColor(role), team: null });
+      }
+    }
+
+    for (let i = 0; i < n; i++) {
+      const s = slots[i];
       const div = document.createElement('div');
-      div.className = 'slot filled';
-      div.style.setProperty('--c', roleColor(role));
+      div.className = 'slot filled' + (s.team ? ' team-' + s.team : '');
+      div.style.setProperty('--c', s.color);
 
       let playerName = null, isBot = false;
       if (data.starting && data.slots && data.slots[i]) {
@@ -128,7 +190,7 @@
         isBot = playerName === null;
       }
 
-      div.innerHTML = '<span style="color:var(--c)">●</span><span class="rt">' + role + '</span>' +
+      div.innerHTML = '<span style="color:var(--c)">●</span><span class="rt">' + s.label + '</span>' +
         (playerName
           ? '<span>' + escapeHtml(playerName) + '</span>' + (isBot ? '<span class="bot">BOT</span>' : '')
           : '<span class="bot">BOT</span>');
@@ -139,7 +201,7 @@
       el.status.textContent = 'Game in progress…';
       el.startBtn.hidden = true;
     } else if (data.count >= data.max) {
-      el.status.textContent = '5 players — starting!';
+      el.status.textContent = data.max + ' players — starting!';
       el.startBtn.hidden = true;
     } else {
       const rest = data.max - data.count;
@@ -150,9 +212,70 @@
     }
   }
 
+  function applyHudMode() {
+    if (gameMode === '3v3') {
+      el.classicScoreRow.hidden = true;
+      el.lives.hidden = true;
+      el.surge.hidden = true;
+      el.teamScores.hidden = false;
+      el.timer.hidden = false;
+    } else {
+      el.classicScoreRow.hidden = false;
+      el.lives.hidden = false;
+      el.teamScores.hidden = true;
+      el.timer.hidden = true;
+    }
+  }
+
+  function renderTimer(seconds) {
+    const s = Math.max(0, seconds | 0);
+    const m = Math.floor(s / 60);
+    const ss = s % 60;
+    el.timer.textContent = m + ':' + (ss < 10 ? '0' : '') + ss;
+    el.timer.classList.toggle('warn', s <= 15);
+  }
+
+  function huntBannerText(entities) {
+    const mine = myRole ? entities.find(x => x.slot === myRole.role) : null;
+    if (!mine) return 'FINAL HUNT · roles are locked — the Ghost hunts, the Pacmen survive';
+    return mine.currentRole === 'ghost'
+      ? 'FINAL HUNT · you are the Ghost — the only scorer, hunt their Pacmen'
+      : 'FINAL HUNT · you are prey — survive the enemy Ghost';
+  }
+
+  function updateRoleBadgeFor3v3(entities) {
+    if (!myRole) return;
+    const e = entities.find(x => x.slot === myRole.role);
+    if (!e) return;
+    const teamName = e.team === 'red' ? 'Red' : 'Blue';
+    const roleName = e.currentRole === 'ghost' ? 'Ghost' : (e.transitioning ? 'Switching…' : 'Pacman');
+    const playerName = e.bot ? 'Bot' : e.name;
+    el.roleBadge.innerHTML =
+      '<span class="role-chip"><span class="swatch" style="background:' + e.color + '"></span>' +
+      teamName + ' · <b>' + roleName + '</b>' +
+      '<span class="who">&mdash; ' + escapeHtml(playerName) + '</span></span>';
+  }
+
+  function updateRosterScoresFromEntities(entities) {
+    if (!entities) return;
+    for (const e of entities) {
+      const node = el.roster.querySelector('.sc[data-slot="' + e.slot + '"]');
+      if (node) node.textContent = e.score;
+    }
+  }
+
   function buildRoleBadge(roles) {
     const r = roles.find(x => x.socketId === myId);
     if (!r) return;
+    if (gameMode === '3v3') {
+      const teamName = r.team === 'red' ? 'Red' : 'Blue';
+      const playerName = r.bot ? 'Bot' : r.name;
+      el.roleBadge.innerHTML =
+        '<span class="role-chip"><span class="swatch" style="background:' + r.color + '"></span>' +
+        teamName + ' · <b>Ghost</b>' +
+        '<span class="who">&mdash; ' + escapeHtml(playerName) + '</span></span>';
+      return;
+    }
     const roleName = ROLE_NAMES[r.role] || 'Spectator';
     const playerName = r.bot ? 'Bot' : r.name;
     el.roleBadge.innerHTML =
@@ -166,7 +289,9 @@
     for (const r of roles) {
       const card = document.createElement('div');
       card.className = 'roster-card' + (r.socketId === myId ? ' you' : '');
-      const roleName = ROLE_NAMES[r.role] || '?';
+      const roleName = gameMode === '3v3'
+        ? `${r.team === 'red' ? 'Red' : 'Blue'} ${r.role % 3 + 1}`
+        : (ROLE_NAMES[r.role] || '?');
       const playerName = r.bot ? 'Computer' : r.name;
       card.innerHTML =
         '<span class="swatch" style="background:' + r.color + '"></span>' +
@@ -215,13 +340,21 @@
     el.overlay.hidden = true;
   }
 
-  function showOverlay(winner) {
+  function showOverlay(winner, mode) {
     el.overlay.hidden = false;
-    const title = winner === 'pacman' ? 'Pacman Wins!' : 'Ghosts Win!';
+    let title, text;
+    if (mode === '3v3') {
+      if (winner === 'red')       { title = 'Red Wins!';   text = 'Team Red takes the round.'; }
+      else if (winner === 'blue') { title = 'Blue Wins!';  text = 'Team Blue takes the round.'; }
+      else                        { title = 'Draw!';       text = 'Both teams finished even.'; }
+    } else {
+      title = winner === 'pacman' ? 'Pacman Wins!' : 'Ghosts Win!';
+      text = winner === 'pacman'
+        ? 'All dots cleared. Pacman team takes the round.'
+        : 'Pacman ran out of lives. Ghost team takes the round.';
+    }
     el.overlayTitle.textContent = title;
-    el.overlayText.textContent = winner === 'pacman'
-      ? 'All dots cleared. Pacman team takes the round.'
-      : 'Pacman ran out of lives. Ghost team takes the round.';
+    el.overlayText.textContent = text;
     el.restartBtn.hidden = !isHost;
     el.restartWait.hidden = isHost;
   }

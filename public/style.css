@@ -90,7 +90,7 @@ input[type="text"]:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rg
 .lobby-info { margin-top: 18px; }
 .slots {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(var(--slot-count, 5), 1fr);
   gap: 6px;
   margin-bottom: 12px;
 }
@@ -207,14 +207,9 @@ input[type="text"]:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rg
 .lb-round { color: var(--accent); font-weight: 700; min-width: 56px; text-align: right; }
 .lb-total { font-weight: 800; min-width: 52px; text-align: right; }
 
-/* Roster strip */
+/* Roster strip — hidden; per-entity name tags on canvas replace it */
 .roster {
-  width: 100%;
-  display: flex;
-  gap: 8px;
-  justify-content: center;
-  flex-wrap: wrap;
-  margin-top: 8px;
+  display: none;
 }
 .roster-card {
   display: flex;
@@ -283,3 +278,38 @@ body.touch .joystick { display: block; }
   border: 1px dashed var(--border);
   pointer-events: none;
 }
+
+/* Lobby: mode selector (host only) */
+.mode-row { margin-top: 14px; align-items: center; gap: 10px; }
+.mode-label { margin: 0; flex: 0 0 auto; }
+.mode-select {
+  flex: 1;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 10px 12px;
+  border-radius: 9px;
+  font-size: 14px;
+  outline: none;
+}
+.mode-select:focus { border-color: var(--accent); }
+.slots .slot.team-red { border-color: #ff4444; }
+.slots .slot.team-blue { border-color: #4488ff; }
+
+/* HUD: middle timer + team score block */
+.hud-mid { flex: 1; text-align: center; }
+.timer {
+  font-size: 22px;
+  font-weight: 900;
+  letter-spacing: 2px;
+  color: var(--accent);
+  text-shadow: 0 0 12px rgba(255, 212, 0, 0.4);
+}
+.timer.warn { color: #ff8844; }
+.team-scores { display: flex; gap: 12px; align-items: center; margin-top: 2px; font-size: 14px; color: var(--muted); }
+.team-scores .ts { font-weight: 700; }
+.team-scores .ts b { font-size: 20px; margin-left: 4px; }
+.team-scores .ts.red { color: #ff6b6b; }
+.team-scores .ts.red b { color: #ffd0d0; }
+.team-scores .ts.blue { color: #6b9fff; }
+.team-scores .ts.blue b { color: #d0e2ff; }
