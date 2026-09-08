@@ -330,11 +330,13 @@
   }
 
   function showLobby() {
+    document.documentElement.classList.remove('no-pull-refresh');
     el.screenLobby.classList.add('active');
     el.screenGame.classList.remove('active');
     el.overlay.hidden = true;
   }
   function showGame() {
+    document.documentElement.classList.add('no-pull-refresh');
     el.screenLobby.classList.remove('active');
     el.screenGame.classList.add('active');
     el.overlay.hidden = true;

@@ -279,6 +279,11 @@ body.touch .joystick { display: block; }
   pointer-events: none;
 }
 
+/* Phones: the joystick sits below the fold, so a thumb dragging downward would otherwise be read
+   as pull-to-refresh and reload the page mid-round, dropping the player's socket. The refresher is
+   bound to the root scroller, hence the class on <html>. Normal scrolling stays available. */
+html.no-pull-refresh, html.no-pull-refresh body { overscroll-behavior-y: none; }
+
 /* Lobby: mode selector (host only) */
 .mode-row { margin-top: 14px; align-items: center; gap: 10px; }
 .mode-label { margin: 0; flex: 0 0 auto; }
