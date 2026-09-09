@@ -162,6 +162,27 @@ input[type="text"]:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rg
 @keyframes surge-pulse { from { opacity: .55; } to { opacity: 1; } }
 #game { width: 100%; height: auto; display: block; background: #000; border-radius: 10px; border: 1px solid var(--border); touch-action: none; }
 
+/* 3D mode. #game scales with height:auto because its 560x620 bitmap carries an intrinsic ratio; a
+   WebGL canvas has none, so in 3D mode the wrapper has to own a deterministic box instead. The
+   28/26 mirrors the shape a 28x31 board projects to at the renderer's 35-degree camera tilt,
+   so revisit it if TILT or WALL_H in render3d.js changes. */
+.canvas-wrap.mode-3d { aspect-ratio: 28 / 26; max-height: 76vh; touch-action: none; }
+.canvas-wrap.mode-3d #game { display: none; }
+.canvas-wrap.mode-3d > canvas { position: absolute; inset: 0; width: 100%; height: 100%; border-radius: 10px; }
+.canvas-wrap.mode-3d .labels { position: absolute; top: 0; left: 0; z-index: 5; pointer-events: none; }
+
+/* Explicitly above the label layer, which is appended after #overlay in the DOM. */
+.canvas-wrap .overlay { z-index: 10; }
+
+/* Entity name tags, matching the canvas-drawn labels the 2D renderer uses. */
+.ent-tag {
+  font: bold 9px Verdana, sans-serif;
+  background: rgba(0, 0, 0, 0.6);
+  padding: 1px 3px;
+  border-radius: 2px;
+  white-space: nowrap;
+}
+
 .overlay {
   position: absolute; inset: 0;
   background: rgba(0, 0, 0, 0.78);

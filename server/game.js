@@ -53,6 +53,8 @@ const ASSIST_RANGE_3V3 = 8;
 const DOT_SCORE_3V3 = 10;
 const PELLET_SCORE_3V3 = 50;
 const FRIGHT_DURATION_3V3 = 7;
+const FOOD_REGEN_DELAY_3V3 = 10;   // seconds an eaten dot stays gone before it reappears (power pellets never regen)
+const FOOD_REGEN_CUTOFF_3V3 = 90;  // once < 1.5 min remains, no more food regenerates so the endgame locks in
 
 // 3v3 bot strategy
 const RAID_REEVAL_3V3 = 3;         // seconds between raid-quota recomputes
@@ -869,6 +871,8 @@ class Game3v3 extends GameBase {
     };
     this.entities = [];
     this.stage = 'skirmish';   // 'skirmish' until the food bank is empty, then 'hunt'
+    this.pendingFoodRegen = [];   // { r, c, pellet, at } — food scheduled to reappear
+    this.restoredThisTick = [];   // keys restored this tick, sent to clients then cleared
 
     this.assignTeams();
     this.layoutEntities3v3();
@@ -966,6 +970,7 @@ class Game3v3 extends GameBase {
     }
 
     // checked here, not inside collectTile, so the stage flip lands between steps
+    this.processFoodRegen();
     if (this.stage !== 'hunt' && this.dots.size === 0) this.enterHuntStage3v3();
 
     for (const tn of ['red', 'blue']) this.evalRaidQuota3v3(tn, this.teams[tn]);
@@ -1578,12 +1583,38 @@ class Game3v3 extends GameBase {
     if (t === TILE.DOT) {
       this.award(e, DOT_SCORE_3V3);
       this.eraseDot(e.r, e.c);
+      this.scheduleFoodRegen(e.r, e.c);
     } else if (t === TILE.PELLET) {
+      // Power pellets are one-shot: eaten for points + fright, but they never regenerate.
       this.award(e, PELLET_SCORE_3V3);
       this.eraseDot(e.r, e.c);
       const defending = this.defendingTeamOf(e);
       this.startFright(defending);
     }
+  }
+
+  scheduleFoodRegen(r, c) {
+    this.pendingFoodRegen.push({ r, c, at: this.gameTime + FOOD_REGEN_DELAY_3V3 });
+  }
+
+  processFoodRegen() {
+    if (!this.pendingFoodRegen.length) return;
+    // Endgame lock-in: once under the cutoff nothing regenerates, so drop everything still waiting.
+    if (this.timeRemaining < FOOD_REGEN_CUTOFF_3V3) { this.pendingFoodRegen = []; return; }
+    const still = [];
+    for (const item of this.pendingFoodRegen) {
+      if (this.gameTime < item.at) { still.push(item); continue; }
+      this.restoreFood(item.r, item.c);
+    }
+    this.pendingFoodRegen = still;
+  }
+
+  restoreFood(r, c) {
+    const k = r + ',' + c;
+    if (this.dots.has(k)) return;   // idempotent guard against double-restore
+    this.maze[r][c] = TILE.DOT;
+    this.dots.add(k);
+    this.restoredThisTick.push(k);
   }
 
   award(e, points) {
@@ -1707,6 +1738,7 @@ class Game3v3 extends GameBase {
       winner: this.winner,
       stage: this.stage,
       eaten: this.eatenThisTick,
+      restored: this.restoredThisTick,
       entities: this.entities.map(e => ({
         slot: e.slot,
         team: e.team,
@@ -1723,6 +1755,7 @@ class Game3v3 extends GameBase {
       }))
     });
     this.eatenThisTick = [];
+    this.restoredThisTick = [];
   }
 }
 

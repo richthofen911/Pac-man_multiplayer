@@ -11,6 +11,14 @@ const PORT = process.env.PORT || 3000;
 const app = express();
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
+// three.js for the browser, resolved by the importmap in index.html. Only these two subtrees are
+// exposed: the package also ships src/, a second unbundled copy of every module, and an import that
+// resolved there would build duplicate singletons of the core classes. build/ is mounted whole
+// because three.module.js imports its ./three.core.js sibling relatively.
+const THREE_ROOT = path.join(__dirname, '..', 'node_modules', 'three');
+app.use('/three/build', express.static(path.join(THREE_ROOT, 'build'), { maxAge: '7d' }));
+app.use('/three/examples/jsm', express.static(path.join(THREE_ROOT, 'examples', 'jsm'), { maxAge: '7d' }));
+
 const server = http.createServer(app);
 const io = new Server(server);
 

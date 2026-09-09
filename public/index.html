@@ -5,6 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Pacman: 5-Player</title>
   <link rel="stylesheet" href="style.css" />
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "/three/build/three.module.js",
+      "three/addons/": "/three/examples/jsm/"
+    }
+  }
+  </script>
 </head>
 <body>
   <div id="app">
@@ -26,6 +34,15 @@
             <option value="3v3">3 vs 3 Team Battle</option>
           </select>
         </div>
+
+        <div id="gfxRow" class="row mode-row">
+          <label for="gfxSelect" class="mode-label">Graphics</label>
+          <select id="gfxSelect" class="mode-select" aria-label="Graphics renderer">
+            <option value="2d">Classic 2D</option>
+            <option value="3d">Neon 3D</option>
+          </select>
+        </div>
+        <p id="gfxNote" class="status" hidden></p>
 
         <div id="lobbyInfo" class="lobby-info">
           <div id="slotPreview" class="slots"></div>
@@ -79,7 +96,6 @@
   </div>
 
   <script src="/socket.io/socket.io.js"></script>
-  <script src="js/render.js"></script>
-  <script src="js/client.js"></script>
+  <script type="module" src="js/client.js"></script>
 </body>
 </html>
