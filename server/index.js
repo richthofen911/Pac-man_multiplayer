@@ -9,6 +9,13 @@ const { Game, Game3v3 } = require('./game');
 const PORT = process.env.PORT || 3000;
 
 const app = express();
+app.disable('x-powered-by');
+
+// Render probes this before sending traffic to a newly deployed instance.
+app.get('/healthz', (req, res) => {
+  res.json({ status: 'ok', uptime: Math.round(process.uptime()) });
+});
+
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
 // three.js for the browser, resolved by the importmap in index.html. Only these two subtrees are
@@ -189,9 +196,26 @@ function cleanName(name) {
   return n || 'Player';
 }
 
+const PUBLIC_URL = process.env.RENDER_EXTERNAL_URL;
+
 server.listen(PORT, '0.0.0.0', () => {
-  console.log('Pacman server running.');
-  console.log(`\n  On this device:    http://localhost:${PORT}`);
-  console.log(`  On your network:   http://<this-device-ip>:${PORT}`);
-  console.log('\nOther players should open the network URL on their own devices.\n');
+  console.log(`Pacman server running on port ${PORT}.`);
+  if (PUBLIC_URL) {
+    console.log(`\n  Public URL:        ${PUBLIC_URL}`);
+  } else {
+    console.log(`\n  On this device:    http://localhost:${PORT}`);
+    console.log(`  On your network:   http://<this-device-ip>:${PORT}`);
+  }
+  console.log('\nOther players should open the same URL on their own devices.\n');
 });
+
+// Render sends SIGTERM on deploys/restarts; close connections instead of dropping them abruptly.
+function shutdown(signal) {
+  console.log(`${signal} received, shutting down.`);
+  io.close();
+  server.close(() => process.exit(0));
+  setTimeout(() => process.exit(0), 10_000).unref();
+}
+
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));

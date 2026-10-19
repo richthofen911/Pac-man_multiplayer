@@ -1,0 +1,17 @@
+# Render Blueprint for the Pacman multiplayer server.
+# Deploy: Dashboard -> New -> Blueprint -> select this repository -> Apply.
+services:
+  - type: web
+    name: pacman-multiplayer
+    runtime: node
+    plan: free
+    region: ohio
+    branch: main
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /healthz
+    autoDeployTrigger: commit
+    # Game state and Socket.IO sessions live in this process's memory, so all
+    # players must share one instance. Scaling out would need a Redis adapter
+    # and sticky sessions.
+    numInstances: 1
