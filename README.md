@@ -1,5 +1,7 @@
 # Pacman Multiplayer
 
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/richthofen911/Pac-man_multiplayer)
+
 Real-time Pacman for up to 5 players (1 Pacman vs 4 ghosts), plus a 3v3 team mode.
 The server is authoritative; clients render either classic 2D or neon 3D with three.js.
 
